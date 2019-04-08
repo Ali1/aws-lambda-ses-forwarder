@@ -1,352 +1,212 @@
-"use strict";
+# Ali1 fork
+Can set reply to in config
+Email to header is set to the Lambda recipients (facilitate reply to all discussion between recipients)
+Email suffix instead of prefix (by default, timestamp)
 
-var AWS = require('aws-sdk');
+# AWS Lambda SES Email Forwarder
 
-console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
+[![npm version](https://badge.fury.io/js/aws-lambda-ses-forwarder.svg)](https://www.npmjs.com/package/aws-lambda-ses-forwarder)
+[![Travis CI test status](https://travis-ci.org/arithmetric/aws-lambda-ses-forwarder.svg?branch=master)](https://travis-ci.org/arithmetric/aws-lambda-ses-forwarder)
+[![Test coverage status](https://coveralls.io/repos/github/arithmetric/aws-lambda-ses-forwarder/badge.svg?branch=master)](https://coveralls.io/github/arithmetric/aws-lambda-ses-forwarder?branch=master)
 
-// Configure the S3 bucket and key prefix for stored raw emails, and the
-// mapping of email addresses to forward from and to.
-//
-// Expected keys/values:
-//
-// - fromEmail: Forwarded emails will come from this verified address
-//
-// - subjectSuffix: Forwarded emails subject will contain this prefix
-//
-// - emailBucket: S3 bucket name where SES stores emails.
-//
-// - emailKeyPrefix: S3 key name prefix where SES stores email. Include the
-//   trailing slash.
-//
-// - forwardMapping: Object where the key is the lowercase email address from
-//   which to forward and the value is an array of email addresses to which to
-//   send the message.
-//
-//   To match all email addresses on a domain, use a key without the name part
-//   of an email address before the "at" symbol (i.e. `@example.com`).
-//
-//   To match a mailbox name on all domains, use a key without the "at" symbol
-//   and domain part of an email address (i.e. `info`).
-var defaultConfig = {
-  fromEmail: "noreply@imcal.co.uk",
-  subjectSuffix: " " + new Date().toISOString() + " ",
-  emailBucket: "receptionforwarder",
-  emailKeyPrefix: "",
-  replyTo: 'reception@integralmedical.co.uk',
-  forwardMapping: {
-    "receptionforwarder@imcal.co.uk": [
-      "reception@integralmedical.co.uk"
-    ],
-    "doctorsandreceptionforwarder@imcal.co.uk": [
-      "reception@integralmedical.co.uk",
-      "said.bakir@integralmedical.co.uk",
-      'dralhussein.imc@gmail.com'
-    ],
-  }
-};
+A Node.js script for AWS Lambda that uses the inbound/outbound capabilities of
+AWS Simple Email Service (SES) to run a "serverless" email forwarding service.
 
-/**
- * Parses the SES event record provided for the `mail` and `receipients` data.
- *
- * @param {object} data - Data bundle with context, email, etc.
- *
- * @return {object} - Promise resolved with data.
- */
-exports.parseEvent = function(data) {
-  // Validate characteristics of a SES event record.
-  if (!data.event ||
-      !data.event.hasOwnProperty('Records') ||
-      data.event.Records.length !== 1 ||
-      !data.event.Records[0].hasOwnProperty('eventSource') ||
-      data.event.Records[0].eventSource !== 'aws:ses' ||
-      data.event.Records[0].eventVersion !== '1.0') {
-    data.log({message: "parseEvent() received invalid SES message:",
-      level: "error", event: JSON.stringify(data.event)});
-    return Promise.reject(new Error('Error: Received invalid SES message.'));
-  }
+Instead of setting up an email server on an EC2 instance to handle email
+redirects, use SES to receive email, and the included Lambda script to process
+it and send it on to the chosen destination.
 
-  data.email = data.event.Records[0].ses.mail;
-  data.recipients = data.event.Records[0].ses.receipt.recipients;
-  return Promise.resolve(data);
-};
+## Limitations
 
-/**
- * Transforms the original recipients to the desired forwarded destinations.
- *
- * @param {object} data - Data bundle with context, email, etc.
- *
- * @return {object} - Promise resolved with data.
- */
-exports.transformRecipients = function(data) {
-  var newRecipients = [];
-  data.originalRecipients = data.recipients;
-  data.recipients.forEach(function(origEmail) {
-    var origEmailKey = origEmail.toLowerCase();
-    if (data.config.forwardMapping.hasOwnProperty(origEmailKey)) {
-      newRecipients = newRecipients.concat(
-        data.config.forwardMapping[origEmailKey]);
-      data.originalRecipient = origEmail;
-    } else {
-      var origEmailDomain;
-      var origEmailUser;
-      var pos = origEmailKey.lastIndexOf("@");
-      if (pos === -1) {
-        origEmailUser = origEmailKey;
-      } else {
-        origEmailDomain = origEmailKey.slice(pos);
-        origEmailUser = origEmailKey.slice(0, pos);
-      }
-      if (origEmailDomain &&
-          data.config.forwardMapping.hasOwnProperty(origEmailDomain)) {
-        newRecipients = newRecipients.concat(
-          data.config.forwardMapping[origEmailDomain]);
-        data.originalRecipient = origEmail;
-      } else if (origEmailUser &&
-        data.config.forwardMapping.hasOwnProperty(origEmailUser)) {
-        newRecipients = newRecipients.concat(
-          data.config.forwardMapping[origEmailUser]);
-        data.originalRecipient = origEmail;
-      }
-    }
-  });
+- SES only allows sending email from addresses or domains that are verified.
+Since this script is meant to allow forwarding email from any sender, the
+message is modified to allow forwarding through SES and reflect the original
+sender. This script adds a Reply-To header with the original sender, but the
+From header is changed to display the original sender but to be sent from the
+original destination.
 
-  if (!newRecipients.length) {
-    data.log({message: "Finishing process. No new recipients found for " +
-      "original destinations: " + data.originalRecipients.join(", "),
-      level: "info"});
-    return data.callback();
-  }
+  For example, if an email sent by `Jane Example <jane@example.com>` to
+  `info@example.com` is processed by this script, the From and Reply-To headers
+  will be set to:
 
-  data.recipients = newRecipients;
-  return Promise.resolve(data);
-};
+  ```
+  From: Jane Example at jane@example.com <info@example.com>
+  Reply-To: jane@example.com
+  ```
 
-/**
- * Fetches the message data from S3.
- *
- * @param {object} data - Data bundle with context, email, etc.
- *
- * @return {object} - Promise resolved with data.
- */
-exports.fetchMessage = function(data) {
-  // Copying email object to ensure read permission
-  data.log({level: "info", message: "Fetching email at s3://" +
-    data.config.emailBucket + '/' + data.config.emailKeyPrefix +
-    data.email.messageId});
-  return new Promise(function(resolve, reject) {
-    data.s3.copyObject({
-      Bucket: data.config.emailBucket,
-      CopySource: data.config.emailBucket + '/' + data.config.emailKeyPrefix +
-        data.email.messageId,
-      Key: data.config.emailKeyPrefix + data.email.messageId,
-      ACL: 'private',
-      ContentType: 'text/plain',
-      StorageClass: 'STANDARD'
-    }, function(err) {
-      if (err) {
-        data.log({level: "error", message: "copyObject() returned error:",
-          error: err, stack: err.stack});
-        return reject(
-          new Error("Error: Could not make readable copy of email."));
-      }
+  To override this behavior, set a verified fromEmail address
+  (e.g., noreply@example.com) in the `config` object and the header will look
+  like this.
 
-      // Load the raw email from S3
-      data.s3.getObject({
-        Bucket: data.config.emailBucket,
-        Key: data.config.emailKeyPrefix + data.email.messageId
-      }, function(err, result) {
-        if (err) {
-          data.log({level: "error", message: "getObject() returned error:",
-            error: err, stack: err.stack});
-          return reject(
-            new Error("Error: Failed to load message body from S3."));
-        }
-        data.emailData = result.Body.toString();
-        return resolve(data);
-      });
-    });
-  });
-};
+  ```
+  From: Jane Example <noreply@example.com>
+  Reply-To: jane@example.com
+  ```
 
-/**
- * Processes the message data, making updates to recipients and other headers
- * before forwarding message.
- *
- * @param {object} data - Data bundle with context, email, etc.
- *
- * @return {object} - Promise resolved with data.
- */
-exports.processMessage = function(data) {
-  var match = data.emailData.match(/^((?:.+\r?\n)*)(\r?\n(?:.*\s+)*)/m);
-  var header = match && match[1] ? match[1] : data.emailData;
-  var body = match && match[2] ? match[2] : '';
+- SES only allows receiving email sent to addresses within verified domains. For
+more information, see:
+http://docs.aws.amazon.com/ses/latest/DeveloperGuide/verify-domains.html
+
+- SES only allows sending emails up to 10 MB in size (including attachments
+after encoding). See:
+https://docs.aws.amazon.com/ses/latest/DeveloperGuide/limits.html
+
+- Initially SES users are in a sandbox environment that has a number of
+limitations. See:
+http://docs.aws.amazon.com/ses/latest/DeveloperGuide/limits.html
+
+## Set Up
+
+1. Modify the values in the `config` object at the top of `index.js` to specify
+the S3 bucket and object prefix for locating emails stored by SES. Also provide
+the email forwarding mapping from original destinations to new destination.
+
+2. In AWS Lambda, add a new function and skip selecting a blueprint.
+
+ - Name the function "SesForwarder" and optionally give it a description. Ensure
+ Runtime is set to Node.js v8.10.
+
+ - For the Lambda function code, either copy and paste the contents of
+ `index.js` into the inline code editor or zip the contents of the repository
+ and upload them directly or via S3.
+
+ - Ensure Handler is set to `index.handler`.
+
+ - For Role, choose "Basic Execution Role" under Create New Role. In the popup,
+ give the role a name (e.g., `LambdaSesForwarder`). Configure the role policy to
+ the following:
+ ```
+ {
+    "Version": "2012-10-17",
+    "Statement": [
+       {
+          "Effect": "Allow",
+          "Action": [
+             "logs:CreateLogGroup",
+             "logs:CreateLogStream",
+             "logs:PutLogEvents"
+          ],
+          "Resource": "arn:aws:logs:*:*:*"
+       },
+       {
+          "Effect": "Allow",
+          "Action": "ses:SendRawEmail",
+          "Resource": "*"
+       },
+       {
+          "Effect": "Allow",
+          "Action": [
+             "s3:GetObject",
+             "s3:PutObject"
+          ],
+          "Resource": "arn:aws:s3:::S3-BUCKET-NAME/*"
+       }
+    ]
+ }
+ ```
+
+ - Configure the Memory and Timeout settings according to your use case. For
+   simple text emails, a memory limit of 128 MB and timeout of 10 seconds should
+   be sufficient. For emails with large attachments, a memory limit of 512 MB or
+   more and timeout of 30 seconds may be required.
+
+3. In AWS SES, verify the domains for which you want to receive and forward
+email. Also configure the DNS MX record for these domains to point to the email
+receiving (or inbound) SES endpoint. See [SES documentation](http://docs.aws.amazon.com/ses/latest/DeveloperGuide/regions.html#region-endpoints)
+for the email receiving endpoints in each region.
 
 
-  // Add "Reply-To:" with the "From" address if it doesn't already exists
-  if (!/^Reply-To: /mi.test(header)) {
-    match = header.match(/^From: (.*(?:\r?\n\s+.*)*\r?\n)/m);
-    var from;
-    from = match && match[1] ? match[1] : '';
-    if (from) {
-      header = header + 'Reply-To: ' + from;
-      data.log({level: "info", message: "Added Reply-To address of: " + from});
-    } else {
-      data.log({level: "info", message: "Reply-To address not added because " +
-       "From address was not properly extracted."});
-    }
-  }
-  if (data.config.replyTo) {
-    header = header.replace(
-      /^Reply-To: (.*)/mg,
-      function(match, oldReplyTo) {
-        return 'Reply-To: ' + data.config.replyTo;
-      });
-  }
+4. If you have the sandbox level of access to SES, then also verify any email
+addresses to which you want to forward email that are not on verified domains.
 
-  match = header.match(/^From: (.*)/m);
-  var properFrom = match && match[1] ? match[1] : ''; // set before it's replaced from use in Subject
+5. If you have not configured inbound email handling, create a new Rule Set.
+Otherwise, you can use an existing one.
 
+6. Create a rule for handling email forwarding functionality.
 
-  // SES does not allow sending messages from an unverified address,
-  // so replace the message's "From:" header with the original
-  // recipient (which is a verified domain)
-  header = header.replace(
-    /^From: (.*(?:\r?\n\s+.*)*)/mg,
-    function(match, from) {
-      var fromText;
-      if (data.config.fromEmail) {
-        fromText = 'From: ' + from.replace(/<(.*)>/, '').trim() +
-        ' <' + data.config.fromEmail + '>';
-      } else {
-        fromText = 'From: ' + from.replace('<', 'at ').replace('>', '') +
-        ' <' + data.originalRecipient + '>';
-      }
-      return fromText;
-    });
+ - On the Recipients configuration page, add any email addresses from which you
+ want to forward email.
 
+ - On the Actions configuration page, add an S3 action first and then an Lambda
+ action.
 
-  // Add a prefix to the Subject
-  if (data.config.subjectSuffix) {
-    header = header.replace(
-      /^Subject: (.*)/mg,
-      function(match, subject) {
-        return 'Subject: ' + subject + " (from " + properFrom + ")" + data.config.subjectSuffix;
-      });
-  }
+ - For the S3 action: Create or choose an existing S3 bucket. Optionally, add an
+ object key prefix. Leave Encrypt Message unchecked and SNS Topic set to [none].
 
-  // Replace original 'To' header with a manually defined one
-  if (data.config.toEmail) {
-    header = header.replace(/^To: (.*)/mg, () => 'To: ' + data.config.toEmail);
-  } else {
-    // from transformRecipients: data.recipients
-    var toList = '';
-    var i = 0;
-    while (i < data.recipients.length) {
-      if (i > 0) toList = toList + ', ';
-      toList = toList + data.recipients[i];
-      i++;
-    }
-    header = header.replace(/^To: (.*)/mg, () => 'To: ' + toList);
-  }
+ - For the Lambda action: Choose the SesForwarder Lambda function. Leave
+ Invocation Type set to Event and SNS Topic set to [none].
 
-  // Remove the Return-Path header.
-  header = header.replace(/^Return-Path: (.*)\r?\n/mg, '');
+ - Finish by naming the rule, ensuring it's enabled and that spam and virus
+ checking are used.
 
-  // Remove Sender header.
-  header = header.replace(/^Sender: (.*)\r?\n/mg, '');
+ - If you get an error like "Could not write to bucket", follow step 7 before
+ completing this one
 
-  // Remove Message-ID header.
-  header = header.replace(/^Message-ID: (.*)\r?\n/mig, '');
+ - If you are asked by SES to add permissions to access `lambda:InvokeFunction`,
+ agree to it.
 
-  // Remove all DKIM-Signature headers to prevent triggering an
-  // "InvalidParameterValue: Duplicate header 'DKIM-Signature'" error.
-  // These signatures will likely be invalid anyways, since the From
-  // header was modified.
-  header = header.replace(/^DKIM-Signature: .*\r?\n(\s+.*\r?\n)*/mg, '');
+7. The S3 bucket policy needs to be configured so that your IAM user has read
+and write access to the S3 bucket. When you set up the S3 action in SES, it may
+add a bucket policy statement that denies all users other than root access to
+get objects. This causes access issues from the Lambda script, so you will
+likely need to adjust the bucket policy statement with one like this:
+ ```
+ {
+    "Version": "2012-10-17",
+    "Statement": [
+       {
+          "Sid": "GiveSESPermissionToWriteEmail",
+          "Effect": "Allow",
+          "Principal": {
+             "Service": "ses.amazonaws.com"
+          },
+          "Action": "s3:PutObject",
+          "Resource": "arn:aws:s3:::S3-BUCKET-NAME/*",
+          "Condition": {
+             "StringEquals": {
+                "aws:Referer": "AWS-ACCOUNT-ID"
+             }
+          }
+       }
+    ]
+ }
+ ```
 
-  data.emailData = header + body;
-  return Promise.resolve(data);
-};
+8. Optionally set the S3 lifecycle for this bucket to delete/expire objects
+after a few days to clean up the saved emails.
 
-/**
- * Send email using the SES sendRawEmail command.
- *
- * @param {object} data - Data bundle with context, email, etc.
- *
- * @return {object} - Promise resolved with data.
- */
-exports.sendMessage = function(data) {
-  var params = {
-    Destinations: data.recipients,
-    Source: data.originalRecipient,
-    RawMessage: {
-      Data: data.emailData
-    }
-  };
-  data.log({level: "info", message: "sendMessage: Sending email via SES. " +
-    "Original recipients: " + data.originalRecipients.join(", ") +
-    ". Transformed recipients: " + data.recipients.join(", ") + "."});
-  return new Promise(function(resolve, reject) {
-    data.ses.sendRawEmail(params, function(err, result) {
-      if (err) {
-        data.log({level: "error", message: "sendRawEmail() returned error.",
-          error: err, stack: err.stack});
-        return reject(new Error('Error: Email sending failed.'));
-      }
-      data.log({level: "info", message: "sendRawEmail() successful.",
-        result: result});
-      resolve(data);
-    });
-  });
-};
+## Extending
 
-/**
- * Handler function to be invoked by AWS Lambda with an inbound SES email as
- * the event.
- *
- * @param {object} event - Lambda event from inbound email received by AWS SES.
- * @param {object} context - Lambda context object.
- * @param {object} callback - Lambda callback object.
- * @param {object} overrides - Overrides for the default data, including the
- * configuration, SES object, and S3 object.
- */
-exports.handler = function(event, context, callback, overrides) {
-  var steps = overrides && overrides.steps ? overrides.steps :
-  [
-    exports.parseEvent,
-    exports.transformRecipients,
-    exports.fetchMessage,
-    exports.processMessage,
-    exports.sendMessage
-  ];
-  var data = {
-    event: event,
-    callback: callback,
-    context: context,
-    config: overrides && overrides.config ? overrides.config : defaultConfig,
-    log: overrides && overrides.log ? overrides.log : console.log,
-    ses: overrides && overrides.ses ? overrides.ses : new AWS.SES(),
-    s3: overrides && overrides.s3 ?
-      overrides.s3 : new AWS.S3({signatureVersion: 'v4'})
-  };
-  Promise.series(steps, data)
-    .then(function(data) {
-      data.log({level: "info", message: "Process finished successfully."});
-      return data.callback();
-    })
-    .catch(function(err) {
-      data.log({level: "error", message: "Step returned error: " + err.message,
-        error: err, stack: err.stack});
-      return data.callback(new Error("Error: Step returned error."));
-    });
-};
+By loading aws-lambda-ses-forwarder as a module in a Lambda script, you can
+override the default config settings, change the order in which to process
+tasks, and add functions as custom tasks.
 
-Promise.series = function(promises, initValue) {
-  return promises.reduce(function(chain, promise) {
-    if (typeof promise !== 'function') {
-      return Promise.reject(new Error("Error: Invalid promise item: " +
-        promise));
-    }
-    return chain.then(promise);
-  }, Promise.resolve(initValue));
-};
+The overrides object may have the following keys:
+- `config`: An object that defines the S3 storage location and mapping for
+email forwarding.
+- `log`: A function that accepts log messages for reporting. By default, this is
+set to `console.log`.
+- `steps`: An array of functions that should be executed to process and forward
+the email. See `index.js` for the default set of steps.
+
+See [example](https://github.com/arithmetric/aws-lambda-ses-forwarder/tree/master/example)
+for how to provide configuration as overrides.
+
+## Troubleshooting
+
+Test the configuration by sending emails to recipient addresses.
+
+- If you receive a bounce from AWS with the message `"This message could not be
+delivered due to a recipient error."`, then the rules could not be executed.
+Check the configuration of the rules.
+
+- Check if you find an object associated with the message in the S3 bucket.
+
+- If your Lambda function encounters an error it will be logged
+in CloudWatch. Click on "Logs" in the CloudWatch menu, and you should find a log
+group for the Lambda function.
+
+## Credits
+
+Based on the work of @eleven41 and @mwhouser from:
+https://github.com/eleven41/aws-lambda-send-ses-email
