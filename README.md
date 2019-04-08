@@ -1,7 +1,8 @@
 # Ali1 fork
-Can set reply to in config
-Email to header is set to the Lambda recipients (facilitate reply to all discussion between recipients)
-Email suffix instead of prefix (by default, timestamp)
+
+* Can set reply to in config
+* Email to header is set to the Lambda recipients (facilitate reply to all discussion between recipients)
+* Email suffix instead of prefix (by default, timestamp)
 
 # AWS Lambda SES Email Forwarder
 
