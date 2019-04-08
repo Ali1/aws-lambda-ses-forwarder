@@ -11,7 +11,7 @@ console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
 //
 // - fromEmail: Forwarded emails will come from this verified address
 //
-// - subjectPrefix: Forwarded emails subject will contain this prefix
+// - subjectSuffix: Forwarded emails subject will contain this prefix
 //
 // - emailBucket: S3 bucket name where SES stores emails.
 //
@@ -28,24 +28,19 @@ console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
 //   To match a mailbox name on all domains, use a key without the "at" symbol
 //   and domain part of an email address (i.e. `info`).
 var defaultConfig = {
-  fromEmail: "noreply@example.com",
-  subjectPrefix: "",
-  emailBucket: "s3-bucket-name",
-  emailKeyPrefix: "emailsPrefix/",
+  fromEmail: "noreply@example.co.uk",
+  subjectSuffix: " " + new Date().toISOString() + " ",
+  emailBucket: "receptionforwarder",
+  emailKeyPrefix: "",
+  replyTo: 'reception@example.co.uk',
   forwardMapping: {
-    "info@example.com": [
-      "example.john@example.com",
-      "example.jen@example.com"
+    "receptionforwarder@example.co.uk": [
+      "reception@example.co.uk"
     ],
-    "abuse@example.com": [
-      "example.jim@example.com"
+    "doctorsandreceptionforwarder@example.co.uk": [
+      "reception@example.co.uk",
+      'dr@gmail.com'
     ],
-    "@example.com": [
-      "example.john@example.com"
-    ],
-    "info": [
-      "info@example.com"
-    ]
   }
 };
 
@@ -185,10 +180,12 @@ exports.processMessage = function(data) {
   var header = match && match[1] ? match[1] : data.emailData;
   var body = match && match[2] ? match[2] : '';
 
+
   // Add "Reply-To:" with the "From" address if it doesn't already exists
   if (!/^Reply-To: /mi.test(header)) {
     match = header.match(/^From: (.*(?:\r?\n\s+.*)*\r?\n)/m);
-    var from = match && match[1] ? match[1] : '';
+    var from;
+    from = match && match[1] ? match[1] : '';
     if (from) {
       header = header + 'Reply-To: ' + from;
       data.log({level: "info", message: "Added Reply-To address of: " + from});
@@ -197,6 +194,17 @@ exports.processMessage = function(data) {
        "From address was not properly extracted."});
     }
   }
+  if (data.config.replyTo) {
+    header = header.replace(
+      /^Reply-To: (.*)/mg,
+      function(match, oldReplyTo) {
+        return 'Reply-To: ' + data.config.replyTo;
+      });
+  }
+
+  match = header.match(/^From: (.*)/m);
+  var properFrom = match && match[1] ? match[1] : ''; // set before it's replaced from use in Subject
+
 
   // SES does not allow sending messages from an unverified address,
   // so replace the message's "From:" header with the original
@@ -215,18 +223,29 @@ exports.processMessage = function(data) {
       return fromText;
     });
 
+
   // Add a prefix to the Subject
-  if (data.config.subjectPrefix) {
+  if (data.config.subjectSuffix) {
     header = header.replace(
       /^Subject: (.*)/mg,
       function(match, subject) {
-        return 'Subject: ' + data.config.subjectPrefix + subject;
+        return 'Subject: ' + subject + " (from " + properFrom + ")" + data.config.subjectSuffix;
       });
   }
 
   // Replace original 'To' header with a manually defined one
   if (data.config.toEmail) {
     header = header.replace(/^To: (.*)/mg, () => 'To: ' + data.config.toEmail);
+  } else {
+    // from transformRecipients: data.recipients
+    var toList = '';
+    var i = 0;
+    while (i < data.recipients.length) {
+      if (i > 0) toList = toList + ', ';
+      toList = toList + data.recipients[i];
+      i++;
+    }
+    header = header.replace(/^To: (.*)/mg, () => 'To: ' + toList);
   }
 
   // Remove the Return-Path header.
