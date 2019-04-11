@@ -193,14 +193,14 @@ exports.processMessage = function(data) {
       data.log({level: "info", message: "Reply-To address not added because " +
        "From address was not properly extracted."});
     }
-  }
-  if (data.config.replyTo) {
+   if (data.config.replyTo) {
     header = header.replace(
       /^Reply-To: (.*)/mg,
       function(match, oldReplyTo) {
         return 'Reply-To: ' + data.config.replyTo;
       });
   }
+ }
 
   match = header.match(/^From: (.*)/m);
   var properFrom = match && match[1] ? match[1] : ''; // set before it's replaced from use in Subject
