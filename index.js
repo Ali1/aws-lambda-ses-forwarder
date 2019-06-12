@@ -29,7 +29,7 @@ console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
 //   and domain part of an email address (i.e. `info`).
 var defaultConfig = {
     fromEmail: "noreply@imcal.co.uk",
-    subjectSuffix: " " + new Date().toISOString() + " ",
+    subjectSuffix: true,
     emailBucket: "receptionforwarder",
     emailKeyPrefix: "",
     replyTo: 'reception@integralmedical.co.uk',
@@ -231,7 +231,7 @@ exports.processMessage = function(data) {
         header = header.replace(
             /^Subject: (.*)/mg,
             function(match, subject) {
-                return 'Subject: ' + subject + " (from " + properFrom + ")" + data.config.subjectSuffix;
+                return 'Subject: ' + subject + " (from " + properFrom + ")" + (new Date().toISOString());
             });
     }
 
