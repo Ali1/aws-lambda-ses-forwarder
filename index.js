@@ -1,8 +1,43 @@
 "use strict";
 
-var AWS = require('aws-sdk');
+var Buffer = require('buffer').Buffer;
+var S3 = require('@aws-sdk/client-s3');
+var SES = require('@aws-sdk/client-ses');
 
-console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
+function callbackClient(client, commandConstructors) {
+    return Object.keys(commandConstructors).reduce(function(adapter, method) {
+        adapter[method] = function(params, callback) {
+            client.send(new commandConstructors[method](params))
+                .then(async function(result) {
+                    if (result.Body && !Buffer.isBuffer(result.Body) &&
+                        typeof result.Body.transformToByteArray === 'function') {
+                        result.Body = Buffer.from(
+                            await result.Body.transformToByteArray());
+                    }
+                    callback(null, result);
+                })
+                .catch(function(error) {
+                    callback(error);
+                });
+        };
+        return adapter;
+    }, {});
+}
+
+function defaultSesClient() {
+    return callbackClient(new SES.SESClient({}), {
+        sendRawEmail: SES.SendRawEmailCommand
+    });
+}
+
+function defaultS3Client() {
+    return callbackClient(new S3.S3Client({}), {
+        copyObject: S3.CopyObjectCommand,
+        getObject: S3.GetObjectCommand
+    });
+}
+
+console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.1-imc.0");
 
 // Configure the S3 bucket and key prefix for stored raw emails, and the
 // mapping of email addresses to forward from and to.
@@ -11,7 +46,7 @@ console.log("AWS Lambda SES Forwarder // @arithmetric // Version 4.2.0");
 //
 // - fromEmail: Forwarded emails will come from this verified address
 //
-// - subjectSuffix: Forwarded emails subject will contain this prefix
+// - subjectSuffix: Forwarded emails subject will contain date as a suffix
 //
 // - emailBucket: S3 bucket name where SES stores emails.
 //
@@ -39,8 +74,7 @@ var defaultConfig = {
         ],
         "doctorsandreceptionforwarder@imcal.co.uk": [
             "reception@integralmedical.co.uk",
-            "said.bakir@integralmedical.co.uk",
-            'dralhussein.imc@gmail.com'
+            "said.bakir@integralmedical.co.uk"
         ],
     }
 };
@@ -326,9 +360,9 @@ exports.handler = function(event, context, callback, overrides) {
         context: context,
         config: overrides && overrides.config ? overrides.config : defaultConfig,
         log: overrides && overrides.log ? overrides.log : console.log,
-        ses: overrides && overrides.ses ? overrides.ses : new AWS.SES(),
+        ses: overrides && overrides.ses ? overrides.ses : defaultSesClient(),
         s3: overrides && overrides.s3 ?
-            overrides.s3 : new AWS.S3({signatureVersion: 'v4'})
+            overrides.s3 : defaultS3Client()
     };
     Promise.series(steps, data)
         .then(function(data) {

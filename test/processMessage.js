@@ -6,9 +6,13 @@ var fs = require("fs");
 
 var index = require("../index");
 
+function normalizeNewlines(value) {
+  return value.replace(/\r\n/g, "\n");
+}
+
 describe('index.js', function() {
   describe('#processMessage()', function() {
-    it('should process email data and make updates', function(done) {
+    it('should process email data and make updates', function() {
       var data = {
         config: {},
         email: {
@@ -21,16 +25,15 @@ describe('index.js', function() {
       };
       var emailDataProcessed = fs.readFileSync(
         "test/assets/message.processed.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
-          done();
         });
     });
 
-    it('should preserve an existing Reply-To header in emails', function(done) {
+    it('should preserve an existing Reply-To header in emails', function() {
       var data = {
         config: {},
         email: {
@@ -44,16 +47,15 @@ describe('index.js', function() {
       };
       var emailDataProcessed = fs.readFileSync(
         "test/assets/message.processed.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
-          done();
         });
     });
 
-    it('should preserve an existing Reply-to header', function(done) {
+    it('should preserve an existing Reply-to header', function() {
       var data = {
         config: {},
         email: {
@@ -67,16 +69,33 @@ describe('index.js', function() {
       };
       var emailDataProcessed = fs.readFileSync(
         "test/assets/message.replyto_case.processed.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
-          done();
         });
     });
 
-    it('should allow overriding the From header in emails', function(done) {
+    it('should apply the configured Reply-To when the message has none',
+      function() {
+      var data = {
+        config: {
+          replyTo: "reception@example.com"
+        },
+        emailData: fs.readFileSync("test/assets/message.txt").toString(),
+        log: console.log,
+        recipients: ["jim@example.com"],
+        originalRecipient: "info@example.com"
+      };
+
+      return index.processMessage(data)
+        .then(function(data) {
+          assert.match(data.emailData, /^Reply-To: reception@example\.com$/m);
+        });
+    });
+
+    it('should allow overriding the From header in emails', function() {
       var data = {
         config: {
           fromEmail: "noreply@example.com"
@@ -92,16 +111,15 @@ describe('index.js', function() {
       };
       var emailDataProcessed = fs.readFileSync(
         "test/assets/message.fromemail.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
-          done();
         });
     });
 
-    it('should process multiline From header in emails', function(done) {
+    it('should process multiline From header in emails', function() {
       var data = {
         config: {
           fromEmail: "noreply@example.com"
@@ -117,19 +135,19 @@ describe('index.js', function() {
       };
       var emailDataProcessed = fs.readFileSync(
         "test/assets/message.from_multiline.processed.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
-          done();
         });
     });
 
-    it('should allow adding a prefix to the Subject in emails', function(done) {
+    it('should append the original sender and timestamp to the Subject',
+      function() {
       var data = {
         config: {
-          subjectPrefix: "[PREFIX] "
+          subjectSuffix: true
         },
         email: {
           source: "betsy@example.com"
@@ -139,14 +157,11 @@ describe('index.js', function() {
         recipients: ["jim@example.com"],
         originalRecipient: "info@example.com"
       };
-      var emailDataProcessed = fs.readFileSync(
-        "test/assets/message.subjectprefix.txt").toString();
-      index.processMessage(data)
+      return index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
-            "processEmail updated email data");
-          done();
+          assert.match(data.emailData,
+            /^Subject: Test message from Betsy \(from Betsy <betsy@example\.com>\)\d{4}-\d{2}-\d{2}T/m,
+            "processEmail appended the sender and ISO timestamp");
         });
     });
 
@@ -168,8 +183,8 @@ describe('index.js', function() {
         "test/assets/message.toemail.txt").toString();
       index.processMessage(data)
         .then(function(data) {
-          assert.equal(data.emailData,
-            emailDataProcessed,
+          assert.equal(normalizeNewlines(data.emailData),
+            normalizeNewlines(emailDataProcessed),
             "processEmail updated email data");
           done();
         });
