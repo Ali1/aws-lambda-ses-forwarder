@@ -6,16 +6,31 @@
 * Uses bundled AWS SDK v3 S3 and SES clients on the Node.js 22 Lambda runtime
 
 The checked-in IMC configuration and `4.2.1-imc.0` source match the live
-`SesForwarder` behavior. Install from the lock file and run the verification
-gates before producing a deployment ZIP:
+`SesForwarder` behavior. Install from the lock file and pass the functional
+verification gates before producing a deployment ZIP:
 
 ```
 npm ci
 npm test
 npm run check-coverage
 npm run lint
+```
+
+Run the full unsuppressed dependency audit separately and retain its output and
+exit status:
+
+```
 npm audit
 ```
+
+A failed raw audit remains failed. An unchanged exact-fingerprint,
+assessed/deferred advisory unrelated to the release does not itself block
+ordinary delivery or require an unrelated upgrade. Compare the actual candidate
+audit with its baseline and assess every new, materially worsened or unassessed
+finding before delivery. Applicable critical security risks and genuine install,
+build, runtime or functional-check failures still block. Follow the shared
+[assessed-advisory release policy](https://github.com/Ali1/personal-ops/blob/main/runbooks/dependency-updates.md#assessed-advisories-and-ordinary-delivery);
+do not suppress audit findings or treat functional success as security clearance.
 
 # AWS Lambda SES Email Forwarder
 
