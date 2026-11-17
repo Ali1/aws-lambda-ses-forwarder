@@ -13,8 +13,11 @@ try {
     '--reporter', 'json', '--reporter-option', `output=${report}`,
   ], {stdio: 'inherit', windowsHide: true});
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error('Native unit suite failed.');
   const data = JSON.parse(fs.readFileSync(report, 'utf8'));
+  if (result.status !== 0) {
+    console.error(JSON.stringify((data.failures || []).map(test => ({title: test.fullTitle, error: test.err?.message, stack: test.err?.stack})), null, 2));
+    throw new Error('Native unit suite failed.');
+  }
   if (!Number.isInteger(data.stats?.tests) || data.stats.tests < 1
       || data.stats.pending !== 0 || data.stats.failures !== 0
       || data.stats.passes !== data.stats.tests) {
