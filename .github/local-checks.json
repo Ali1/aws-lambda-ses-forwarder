@@ -1,0 +1,47 @@
+{
+  "repository": "Ali1/aws-lambda-ses-forwarder",
+  "environment": {
+    "CI": "true"
+  },
+  "setup": {
+    "node-root": [
+      {
+        "program": "npm",
+        "args": [
+          "ci"
+        ]
+      }
+    ]
+  },
+  "checks": {
+    "unit": {
+      "setup": [
+        "node-root"
+      ],
+      "commands": [
+        {
+          "program": "node",
+          "args": [
+            ".github/scripts/run-native-unit.cjs"
+          ]
+        }
+      ],
+      "junit": false
+    },
+    "lint": {
+      "setup": [
+        "node-root"
+      ],
+      "commands": [
+        {
+          "program": "npm",
+          "args": [
+            "run",
+            "lint"
+          ]
+        }
+      ],
+      "junit": false
+    }
+  }
+}
