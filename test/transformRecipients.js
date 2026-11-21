@@ -114,7 +114,7 @@ describe('index.js', function() {
       });
 
     it('should exit if there are no new recipients',
-      function(done) {
+      async function() {
         var data = {
           recipients: ["noreply@example.com"],
           config: {
@@ -124,12 +124,9 @@ describe('index.js', function() {
               ]
             }
           },
-          callback: function() {
-            done();
-          },
           log: console.log
         };
-        index.transformRecipients(data);
+        assert.strictEqual(await index.transformRecipients(data), null);
       });
 
     it('should support matching a name without domain',
@@ -155,7 +152,7 @@ describe('index.js', function() {
       });
 
     it('should exit if the recipient is malformed',
-      function(done) {
+      async function() {
         var data = {
           recipients: ["example.com"],
           config: {
@@ -165,12 +162,9 @@ describe('index.js', function() {
               ]
             }
           },
-          callback: function() {
-            done();
-          },
           log: console.log
         };
-        index.transformRecipients(data);
+        assert.strictEqual(await index.transformRecipients(data), null);
       });
   });
 });

@@ -3,7 +3,7 @@
 * Can set reply to in config
 * Email to header is set to the Lambda recipients (facilitate reply to all discussion between recipients)
 * Email suffix instead of prefix (by default, timestamp)
-* Uses bundled AWS SDK v3 S3 and SES clients on the Node.js 22 Lambda runtime
+* Uses bundled AWS SDK v3 S3 and SES clients on the Node.js 24 Lambda runtime
 
 The checked-in IMC configuration and `4.2.1-imc.0` source match the live
 `SesForwarder` behavior. Install from the lock file and pass the functional
@@ -93,7 +93,7 @@ the email forwarding mapping from original destinations to new destination.
 2. In AWS Lambda, add a new function and skip selecting a blueprint.
 
  - Name the function "SesForwarder" and optionally give it a description. Ensure
- Runtime is set to Node.js 22.x.
+ Runtime is set to Node.js 24.x.
 
  - For the Lambda function code, either copy and paste the contents of
  `index.js` into the inline code editor or zip the contents of the repository

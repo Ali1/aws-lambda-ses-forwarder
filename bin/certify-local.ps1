@@ -146,7 +146,7 @@ try {
                 }
                 if ($setup -like 'node*') {
                     $version = (& node --version).Trim()
-                    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v22\.') { throw 'Node 22 is required.' }
+                    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^v24\.') { throw 'Node 24 is required.' }
                 }
                 foreach ($command in $recipe.setup.$setup) { Invoke-RecipeCommand $command }
                 $prepared[$setup] = $true

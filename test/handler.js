@@ -10,7 +10,7 @@ var index = require("../index");
 
 describe('index.js', function() {
   describe('#handler()', function() {
-    it('adapts the default AWS SDK v3 clients to callbacks', function(done) {
+    it('adapts the default AWS SDK v3 clients to callbacks', async function() {
       var originalS3Send = S3.S3Client.prototype.send;
       var originalSesSend = SES.SESClient.prototype.send;
       var rejected = false;
@@ -68,18 +68,16 @@ describe('index.js', function() {
         }
       ];
 
-      index.handler({}, {}, function(err) {
+      try {
+        await index.forward({}, {}, {steps: steps, log: function() {}});
+      } finally {
         restore();
-        done(err);
-      }, {steps: steps, log: function() {}});
+      }
     });
 
-    it('mock data should result in a success', function(done) {
+    it('mock data should result in a success', async function() {
       var event = JSON.parse(fs.readFileSync("test/assets/event.json"));
       var context = {};
-      var callback = function() {
-        done();
-      };
       var overrides = {
         s3: {
           copyObject: function(options, callback) {
@@ -104,57 +102,37 @@ describe('index.js', function() {
           }
         }
       };
-      index.handler(event, context, callback, overrides);
+      await index.forward(event, context, overrides);
     });
 
-    it('should accept functions as steps', function(done) {
-      var event = {};
-      var context = {};
-      var callback = function() {};
-      var overrides = {
+    it('should pass the context to each step', async function() {
+      var context = {requestId: "synthetic"};
+      await index.forward({}, context, {
         steps: [
           function(data) {
-            if (data && data.context) {
-              done();
-            }
+            assert.strictEqual(data.context, context);
+            return data;
           }
         ]
-      };
-      index.handler(event, context, callback, overrides);
+      });
     });
 
-    it('should report failure for invalid steps', function(done) {
-      var event = {};
-      var context = {};
-      var callback = function(err) {
-        done(err ? null : true);
-      };
-      var overrides = {
-        steps: [
-          1,
-          ['test']
-        ]
-      };
-      index.handler(event, context, callback, overrides);
+    it('should report failure for invalid steps', async function() {
+      await assert.rejects(index.forward({}, {}, {steps: [1]}), /Step returned error/);
     });
 
-    it('should report failure for steps passing an error', function(done) {
-      var event = {};
-      var context = {};
-      var callback = function(err) {
-        done(err ? null : true);
-      };
-      var overrides = {
-        steps: [
-          function(data, next) {
-            next(true, data);
-          }
-        ],
-        log: function() {
-          assert.ok(true, "custom log function called successfully");
+    it('should report failure for an invalid Lambda event', async function() {
+      await assert.rejects(index.handler({}, {}), /Step returned error/);
+    });
+
+    it('should finish without AWS operations for unmapped recipients', async function() {
+      var event = JSON.parse(fs.readFileSync("test/assets/event.json"));
+      await index.forward(event, {}, {
+        config: {forwardMapping: {}},
+        log: function(entry) {
+          assert.match(entry.message, /No new recipients/);
         }
-      };
-      index.handler(event, context, callback, overrides);
+      });
     });
   });
 });
