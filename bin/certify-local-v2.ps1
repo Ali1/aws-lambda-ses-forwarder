@@ -37,9 +37,9 @@ try {
             $expectedPhp = $descriptions[$category].scope.runtime.Substring(4)
             $runtime = (& php -r 'echo PHP_VERSION;').Trim()
             if ($LASTEXITCODE -ne 0 -or $runtime -notmatch ('^' + [regex]::Escape($expectedPhp) + '\.')) { throw "PHP $expectedPhp required by category scope." }
-        } elseif ($descriptions[$category].scope.runtime -eq 'node-22') {
+        } elseif ($descriptions[$category].scope.runtime -eq 'node-24') {
             $runtime = (& node --version).Trim()
-            if ($LASTEXITCODE -ne 0 -or $runtime -notmatch '^v22\.') { throw 'Node 22 required by category scope.' }
+            if ($LASTEXITCODE -ne 0 -or $runtime -notmatch '^v24\.') { throw 'Node 24 required by category scope.' }
         } else { throw 'Unsupported runtime scope.' }
     }
     if ($Publish) {

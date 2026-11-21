@@ -7,7 +7,7 @@
       "local_check": "unit",
       "scope": {
         "platform": "windows-native",
-        "runtime": "node-22",
+        "runtime": "node-24",
         "database": "none",
         "kind": "unit"
       },
@@ -26,7 +26,7 @@
       "local_check": "lint",
       "scope": {
         "platform": "portable-static",
-        "runtime": "node-22",
+        "runtime": "node-24",
         "database": "none",
         "kind": "static"
       },

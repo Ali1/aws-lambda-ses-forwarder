@@ -1,7 +1,7 @@
 
 var LambdaForwarder = require("aws-lambda-ses-forwarder");
 
-exports.handler = function(event, context, callback) {
+exports.handler = async function(event, context) {
   // See aws-lambda-ses-forwarder/index.js for all options.
   var overrides = {
     config: {
@@ -19,5 +19,5 @@ exports.handler = function(event, context, callback) {
       }
     }
   };
-  LambdaForwarder.handler(event, context, callback, overrides);
+  await LambdaForwarder.forward(event, context, overrides);
 };

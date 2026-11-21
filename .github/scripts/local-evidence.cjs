@@ -20,7 +20,7 @@ function describe(policy, category, sha, readInput, verifier = fs.readFileSync(_
   // Native application categories describe the actual Windows/Laragon contract.
   // They never attest Linux commissioning or production-engine equivalence.
   const scope = definition.scope;
-  const runtime = ['php-8.4', 'php-8.5', 'node-22'].includes(scope.runtime);
+  const runtime = ['php-8.4', 'php-8.5', 'node-24'].includes(scope.runtime);
   const portable = scope.platform === 'portable-static' && scope.database === 'none' && scope.kind === 'static';
   const native = scope.platform === 'windows-native'
     && ['none', 'sqlite', 'mysql-8.4'].includes(scope.database)

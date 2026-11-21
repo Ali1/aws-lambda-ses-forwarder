@@ -148,7 +148,7 @@ exports.transformRecipients = function(data) {
         data.log({message: "Finishing process. No new recipients found for " +
                 "original destinations: " + data.originalRecipients.join(", "),
             level: "info"});
-        return data.callback();
+        return Promise.resolve(null);
     }
 
     data.recipients = newRecipients;
@@ -341,11 +341,10 @@ exports.sendMessage = function(data) {
  *
  * @param {object} event - Lambda event from inbound email received by AWS SES.
  * @param {object} context - Lambda context object.
- * @param {object} callback - Lambda callback object.
  * @param {object} overrides - Overrides for the default data, including the
  * configuration, SES object, and S3 object.
  */
-exports.handler = function(event, context, callback, overrides) {
+exports.forward = async function(event, context, overrides) {
     var steps = overrides && overrides.steps ? overrides.steps :
         [
             exports.parseEvent,
@@ -356,7 +355,6 @@ exports.handler = function(event, context, callback, overrides) {
         ];
     var data = {
         event: event,
-        callback: callback,
         context: context,
         config: overrides && overrides.config ? overrides.config : defaultConfig,
         log: overrides && overrides.log ? overrides.log : console.log,
@@ -364,24 +362,25 @@ exports.handler = function(event, context, callback, overrides) {
         s3: overrides && overrides.s3 ?
             overrides.s3 : defaultS3Client()
     };
-    Promise.series(steps, data)
-        .then(function(data) {
-            data.log({level: "info", message: "Process finished successfully."});
-            return data.callback();
-        })
-        .catch(function(err) {
-            data.log({level: "error", message: "Step returned error: " + err.message,
-                error: err, stack: err.stack});
-            return data.callback(new Error("Error: Step returned error."));
-        });
+    var log = data.log;
+    try {
+        for (var step of steps) {
+            if (typeof step !== 'function') {
+                throw new Error("Error: Invalid promise item: " + step);
+            }
+            data = await step(data);
+            if (data === null) {
+                return;
+            }
+        }
+        log({level: "info", message: "Process finished successfully."});
+    } catch (err) {
+        log({level: "error", message: "Step returned error: " + err.message,
+            error: err, stack: err.stack});
+        throw new Error("Error: Step returned error.");
+    }
 };
 
-Promise.series = function(promises, initValue) {
-    return promises.reduce(function(chain, promise) {
-        if (typeof promise !== 'function') {
-            return Promise.reject(new Error("Error: Invalid promise item: " +
-                promise));
-        }
-        return chain.then(promise);
-    }, Promise.resolve(initValue));
+exports.handler = async function(event, context) {
+    await exports.forward(event, context);
 };
